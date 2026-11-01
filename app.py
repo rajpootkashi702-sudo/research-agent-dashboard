@@ -47,7 +47,7 @@ if go:
     if not q.strip():
         st.warning("Please enter a research topic first.")
     else:
-        with st.spinner("Scraping Google Scholar — this takes ~20 seconds..."):
+        with st.spinner("Scraping Google Scholar — first search installs the browser (~1–2 min), later ones ~20 sec..."):
             papers, status = scrape_scholar(q.strip())
         st.session_state.query = q.strip()
         st.session_state.papers = papers

@@ -20,8 +20,9 @@ Then open the URL Streamlit prints (usually http://localhost:8501).
 3. New app → pick the repo, set main file to `app.py`, Deploy.
 4. You get a public link like `https://your-app.streamlit.app` — share it with clients.
 
-> Note: on Streamlit Cloud, add a `packages.txt` containing `chromium` if the
-> scraper needs a browser at runtime. Scholar may still show a CAPTCHA to bots —
+> Note: on Streamlit Cloud, `packages.txt` installs the system libraries Chromium
+> needs, and the app installs Playwright's Chromium itself on the first search
+> (~1–2 min one-time). Scholar may still show a CAPTCHA to bots —
 > the dashboard has a **demo mode** so it always presents well.
 
 ## Make it an Android APK
