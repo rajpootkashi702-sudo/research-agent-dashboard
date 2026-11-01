@@ -1,86 +1,126 @@
-"""Google Scholar scraper (Playwright).
+"""Scholarly paper search via free APIs — no key, no browser, no CAPTCHA.
+
+Primary source: Semantic Scholar API (titles, authors, year, citation counts,
+abstracts). Fallback: OpenAlex (very generous rate limits).
 
 Returns (papers, status) where status is one of:
-  "ok"      — papers extracted
-  "blocked" — Scholar showed a CAPTCHA / bot check, or no browser available
-  "empty"   — page loaded but no results found
+  "ok"      — papers found
+  "blocked" — services temporarily unavailable (rate limit / network)
+  "empty"   — search worked but no results found
 """
 
-import os
-import subprocess
+import json
+import urllib.parse
+import urllib.request
+
+_UA = {"User-Agent": "ResearchDashboard/1.0 (mailto:rajpootkashi702@gmail.com)"}
 
 
-def _ensure_chromium(timeout_s=600):
-    """Install Playwright's Chromium at runtime if it is missing.
+def _get_json(url, timeout=25):
+    req = urllib.request.Request(url, headers=_UA)
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
+        if resp.status != 200:
+            raise RuntimeError("HTTP {}".format(resp.status))
+        return json.loads(resp.read().decode("utf-8"))
 
-    Streamlit Cloud does not ship browser binaries, so on the first search
-    we install Chromium once into ~/.cache/ms-playwright. Returns True when
-    a usable Chromium is available.
-    """
-    cache = os.path.expanduser("~/.cache/ms-playwright")
-    try:
-        if os.path.isdir(cache) and any("chromium" in d.lower()
-                                        for d in os.listdir(cache)):
-            return True
-    except OSError:
-        pass
-    try:
-        subprocess.run(["playwright", "install", "chromium"],
-                       check=True, capture_output=True, timeout=timeout_s)
-        return True
-    except Exception:
-        return False
 
+def _fmt_authors(names, year):
+    if not names:
+        auth = "Unknown"
+    elif len(names) == 1:
+        auth = names[0]
+    elif len(names) == 2:
+        auth = "{} & {}".format(names[0], names[1])
+    else:
+        auth = "{} et al.".format(names[0])
+    return "{} - {}".format(auth, year) if year else auth
+
+
+# ---------------- Semantic Scholar (primary) ----------------
+
+def _from_semantic_scholar(query, max_results):
+    params = urllib.parse.urlencode({
+        "query": query,
+        "limit": max_results,
+        "fields": "title,authors,year,citationCount,abstract,url,openAccessPdf",
+    })
+    data = _get_json(
+        "https://api.semanticscholar.org/graph/v1/paper/search?" + params)
+    papers = []
+    for index, item in enumerate(data.get("data") or []):
+        title = (item.get("title") or "").strip()
+        if not title:
+            continue
+        names = [a.get("name", "") for a in (item.get("authors") or [])
+                 if a.get("name")]
+        pdf = item.get("openAccessPdf") or {}
+        papers.append({
+            "Rank": index + 1,
+            "Title": title,
+            "Authors_and_Year": _fmt_authors(names, item.get("year")),
+            "Citations": str(item.get("citationCount") or 0),
+            "Link": pdf.get("url") or item.get("url") or "",
+            "Abstract_Snippet": (item.get("abstract") or
+                                 "No abstract available.").strip(),
+        })
+    return papers
+
+
+# ---------------- OpenAlex (fallback) ----------------
+
+def _reconstruct_abstract(inv_index):
+    if not inv_index:
+        return "No abstract available."
+    positions = {}
+    for word, idx_list in inv_index.items():
+        for i in idx_list:
+            positions[i] = word
+    return " ".join(positions[i] for i in sorted(positions))
+
+
+def _from_openalex(query, max_results):
+    params = urllib.parse.urlencode({
+        "search": query,
+        "per-page": max_results,
+        "mailto": "rajpootkashi702@gmail.com",
+    })
+    data = _get_json("https://api.openalex.org/works?" + params)
+    papers = []
+    for index, item in enumerate(data.get("results") or []):
+        title = (item.get("title") or "").strip()
+        if not title:
+            continue
+        names = []
+        for a in (item.get("authorships") or [])[:3]:
+            author = a.get("author") or {}
+            if author.get("display_name"):
+                names.append(author["display_name"])
+        doi = item.get("doi")
+        loc = item.get("primary_location") or {}
+        papers.append({
+            "Rank": index + 1,
+            "Title": title,
+            "Authors_and_Year": _fmt_authors(
+                names, item.get("publication_year")),
+            "Citations": str(item.get("cited_by_count") or 0),
+            "Link": ("https://doi.org/" + doi.lstrip("https://doi.org/")
+                     if doi else loc.get("landing_page_url") or ""),
+            "Abstract_Snippet": _reconstruct_abstract(
+                item.get("abstract_inverted_index")),
+        })
+    return papers
+
+
+# ---------------- public entry point ----------------
 
 def scrape_scholar(query, max_results=5, headless=True, timeout_ms=12000):
-    from playwright.sync_api import sync_playwright
-
-    if not _ensure_chromium():
-        return [], "blocked"
-
-    papers = []
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=headless)
-            context = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/120.0.0.0 Safari/537.36"
-                )
-            )
-            page = context.new_page()
-            try:
-                page.goto("https://scholar.google.com/", timeout=30000)
-                page.fill("input[name='q']", query)
-                page.press("input[name='q']", "Enter")
-                page.wait_for_selector(".gs_r.gs_or.gs_scl", timeout=timeout_ms)
-            except Exception:
-                browser.close()
-                return [], "blocked"
-
-            rows = page.query_selector_all(".gs_r.gs_or.gs_scl")
-            for index, row in enumerate(rows[:max_results]):
-                title_el = row.query_selector(".gs_rt a")
-                if not title_el:
-                    continue
-                abstract_el = row.query_selector(".gs_rs")
-                meta_el = row.query_selector(".gs_a")
-                cite_el = row.query_selector("a:has-text('Cited by')")
-                papers.append({
-                    "Rank": index + 1,
-                    "Title": title_el.inner_text().strip(),
-                    "Authors_and_Year": meta_el.inner_text().strip() if meta_el else "Unknown",
-                    "Citations": (cite_el.inner_text().replace("Cited by", "").strip()
-                                  if cite_el else "0"),
-                    "Link": title_el.get_attribute("href") or "",
-                    "Abstract_Snippet": (abstract_el.inner_text().replace("\n", " ").strip()
-                                         if abstract_el else "No abstract available."),
-                })
-            browser.close()
-    except Exception:
-        return [], "blocked"
-
-    if not papers:
-        return [], "empty"
-    return papers, "ok"
+    """Kept the historic name so app.py needs no import changes."""
+    for source_fn in (_from_semantic_scholar, _from_openalex):
+        try:
+            papers = source_fn(query, max_results)
+        except Exception:
+            continue  # try the next source
+        if papers:
+            return papers, "ok"
+        return [], "empty"  # source worked, just no results
+    return [], "blocked"

@@ -43,7 +43,7 @@ SAMPLE_PAPERS = [
 ]
 
 st.title("📚 Literature Research Dashboard")
-st.caption("Search Google Scholar, review the top papers, and export professional reports.")
+st.caption("Search 200M+ scholarly papers, review the top results, and export professional reports.")
 
 if "papers" not in st.session_state:
     st.session_state.papers = []
@@ -53,20 +53,20 @@ if "query" not in st.session_state:
 with st.form("search_form"):
     q = st.text_input("Research topic", placeholder="e.g. transformer models for medical imaging")
     c1, c2 = st.columns(2)
-    go = c1.form_submit_button("🔍 Search Scholar")
+    go = c1.form_submit_button("🔍 Search Papers")
     demo = c2.form_submit_button("✨ Load demo data")
 
 if go:
     if not q.strip():
         st.warning("Please enter a research topic first.")
     else:
-        with st.spinner("Scraping Google Scholar — first search installs the browser (~1–2 min), later ones ~20 sec..."):
+        with st.spinner("Searching scholarly papers..."):
             papers, status = scrape_scholar(q.strip())
         st.session_state.query = q.strip()
         st.session_state.papers = papers
         if status == "blocked":
-            st.warning("⚠️ Google Scholar blocked the automated request (CAPTCHA / bot check). "
-                       "Try the demo data below, or run the search manually in your browser.")
+            st.warning("⚠️ The paper search is temporarily unavailable (rate limit). "
+                       "Please try again in a minute, or use the demo data below.")
         elif status == "empty":
             st.info("No results found for this topic. Try different keywords.")
         else:
@@ -113,4 +113,4 @@ if papers:
     d3.download_button("Markdown", to_markdown(papers, st.session_state.query),
                        file_name="{}_report.md".format(base), mime="text/markdown")
 else:
-    st.info("👆 Enter a topic and press **Search Scholar**, or load **demo data** to explore the dashboard.")
+    st.info("👆 Enter a topic and press **Search Papers**, or load **demo data** to explore the dashboard.")
