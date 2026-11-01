@@ -4,7 +4,20 @@ import pandas as pd
 from reports import to_json_str, to_csv_str, to_markdown, parse_citations, clean_filename
 from scraper import scrape_scholar
 
-st.set_page_config(page_title="Literature Research Dashboard", page_icon="📚", layout="wide")
+st.set_page_config(page_title="Literature Research Dashboard", page_icon="📚", layout="centered")
+
+# Mobile-friendly tweaks: full-width buttons, comfortable padding on small screens
+st.markdown("""
+<style>
+@media (max-width: 640px) {
+    .block-container { padding-left: 1rem; padding-right: 1rem; }
+    h1 { font-size: 1.6rem !important; }
+    .stButton > button { width: 100%; padding: 0.75rem 1rem; font-size: 1rem; }
+    .stDownloadButton > button { width: 100%; padding: 0.75rem 1rem; }
+    .stTextInput > div > div > input { font-size: 1rem; }
+}
+</style>
+""", unsafe_allow_html=True)
 
 SAMPLE_PAPERS = [
     {"Rank": 1, "Title": "Attention Is All You Need",
